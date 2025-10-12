@@ -1,16 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Settings, Disc3 } from 'lucide-react';
+import { Settings, Music4 } from 'lucide-react';
 import Equalizer from './Equalizer';
 
 const YouTubePlayer = ({ videoId, onStateChange, onReady }) => {
   const playerRef = useRef(null);
   const audioContextRef = useRef(null);
   const sourceNodeRef = useRef(null);
-  const [showEqualizer, setShowEqualizer] = useState(false);
-  const [is8DEnabled, setIs8DEnabled] = useState(false);
   const pannerRef = useRef(null);
   const reverbRef = useRef(null);
-  const panAnimationRef = useRef(null);
+  const animationRef = useRef(null);
+  const [showEqualizer, setShowEqualizer] = useState(false);
+  const [is8DEnabled, setIs8DEnabled] = useState(false);
 
   useEffect(() => {
     // Initialize Web Audio API context only on user interaction
@@ -90,18 +90,18 @@ const YouTubePlayer = ({ videoId, onStateChange, onReady }) => {
               if (!sourceNodeRef.current) {
                 const source = audioContextRef.current.createMediaElementSource(mediaElement);
                 sourceNodeRef.current = source;
-
+                
                 // Create panner node
                 const panner = audioContextRef.current.createStereoPanner();
                 pannerRef.current = panner;
-
+                
                 // Create convolver node for reverb
-                const reverb = audioContextRef.current.createConvolver();
-                reverbRef.current = reverb;
-
-                // Create impulse response for reverb
+                const convolver = audioContextRef.current.createConvolver();
+                reverbRef.current = convolver;
+                
+                // Generate impulse response for reverb
                 const sampleRate = audioContextRef.current.sampleRate;
-                const length = sampleRate * 2; // 2 seconds reverb
+                const length = 2 * sampleRate; // 2 seconds
                 const impulse = audioContextRef.current.createBuffer(2, length, sampleRate);
                 for (let channel = 0; channel < 2; channel++) {
                   const channelData = impulse.getChannelData(channel);
@@ -109,12 +109,12 @@ const YouTubePlayer = ({ videoId, onStateChange, onReady }) => {
                     channelData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (sampleRate * 0.5));
                   }
                 }
-                reverb.buffer = impulse;
-
+                convolver.buffer = impulse;
+                
                 // Connect nodes
                 source.connect(panner);
-                panner.connect(reverb);
-                reverb.connect(audioContextRef.current.destination);
+                panner.connect(convolver);
+                convolver.connect(audioContextRef.current.destination);
               }
             }, 100); // Give time for iframe content to load
           } catch (error) {
@@ -154,39 +154,45 @@ const YouTubePlayer = ({ videoId, onStateChange, onReady }) => {
     setShowEqualizer(!showEqualizer);
   };
 
-  const toggle8DAudio = () => {
-    if (!audioContextRef.current || !sourceNodeRef.current || !pannerRef.current) return;
-
-    setIs8DEnabled(!is8DEnabled);
+  const toggle8DAudio = async () => {
+    if (!audioContextRef.current || !pannerRef.current) return;
     
-    if (!is8DEnabled) {
+    // Resume audio context if needed
+    if (audioContextRef.current.state === 'suspended') {
+      try {
+        await audioContextRef.current.resume();
+      } catch (error) {
+        console.warn('Could not resume audio context:', error);
+        return;
+      }
+    }
+    
+    const newState = !is8DEnabled;
+    setIs8DEnabled(newState);
+    
+    if (newState) {
       // Start 8D effect
-      const startPanning = () => {
-        const time = audioContextRef.current.currentTime;
-        // Create oscillating panning effect (8 second cycle)
-        pannerRef.current.pan.setValueAtTime(0, time);
-        pannerRef.current.pan.linearRampToValueAtTime(1, time + 2);
-        pannerRef.current.pan.linearRampToValueAtTime(0, time + 4);
-        pannerRef.current.pan.linearRampToValueAtTime(-1, time + 6);
-        pannerRef.current.pan.linearRampToValueAtTime(0, time + 8);
+      const startTime = audioContextRef.current.currentTime;
+      const animate = () => {
+        if (!audioContextRef.current || !pannerRef.current || !is8DEnabled) return;
+        
+        const time = audioContextRef.current.currentTime - startTime;
+        // Create smooth panning effect (cycle every 8 seconds)
+        const panValue = Math.sin(time * Math.PI / 4);
+        pannerRef.current.pan.setValueAtTime(panValue, audioContextRef.current.currentTime);
+        
+        animationRef.current = requestAnimationFrame(animate);
       };
-
-      // Start initial panning
-      startPanning();
-
-      // Schedule repeated panning
-      panAnimationRef.current = setInterval(() => {
-        startPanning();
-      }, 8000);
-
+      animate();
     } else {
       // Stop 8D effect
-      if (panAnimationRef.current) {
-        clearInterval(panAnimationRef.current);
-        panAnimationRef.current = null;
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
       }
-      pannerRef.current.pan.cancelScheduledValues(audioContextRef.current.currentTime);
-      pannerRef.current.pan.setValueAtTime(0, audioContextRef.current.currentTime);
+      if (pannerRef.current) {
+        pannerRef.current.pan.setValueAtTime(0, audioContextRef.current.currentTime);
+      }
     }
   };
 
@@ -207,30 +213,12 @@ const YouTubePlayer = ({ videoId, onStateChange, onReady }) => {
 
         <button
           onClick={toggle8DAudio}
-          className={`p-2 rounded-lg transition-colors ${
-            is8DEnabled 
-              ? 'bg-purple-800/30 hover:bg-purple-700/30' 
-              : 'bg-blue-800/30 hover:bg-blue-700/30'
-          }`}
+          className={is8DEnabled ? "p-2 rounded-lg transition-colors bg-blue-700/30" : "p-2 rounded-lg transition-colors bg-blue-800/30 hover:bg-blue-700/30"}
           title="Toggle 8D Audio"
         >
-          <Disc3 className={`w-5 h-5 ${is8DEnabled ? 'text-purple-400' : 'text-blue-400'} ${
-            is8DEnabled ? 'animate-spin' : ''
-          }`} />
+          <Music4 className={is8DEnabled ? "w-5 h-5 text-blue-300" : "w-5 h-5 text-blue-400"} />
         </button>
       </div>
-      
-      {showEqualizer && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="max-w-4xl w-full mx-4">
-            <Equalizer
-              audioContext={audioContextRef.current}
-              sourceNode={sourceNodeRef.current}
-              onClose={() => setShowEqualizer(false)}
-            />
-          </div>
-        </div>
-      )}
       
       {showEqualizer && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
