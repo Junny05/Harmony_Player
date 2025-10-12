@@ -1,6 +1,36 @@
-# Getting Started with Create React App
+# Last.fm Music Player
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A beautiful music player that integrates Last.fm's music discovery with YouTube playback. Features include:
+
+- Search for artists and tracks using Last.fm's database
+- View artist information, top tracks, and similar artists
+- AI-powered playlist generation based on your music taste
+- Audio playback through YouTube
+- Light/dark theme support
+- Recently played tracks history
+
+## Setup
+
+1. Clone the repository:
+```bash
+git clone https://github.com/Junny05/lastfm-music-player.git
+cd lastfm-music-player
+```
+
+2. Install dependencies:
+```bash
+npm install
+```
+
+3. Set up environment variables:
+   - Copy `.env.example` to `.env`
+   - Add your Last.fm API key (get it from [Last.fm API](https://www.last.fm/api))
+   - Add your YouTube API key (get it from [Google Cloud Console](https://console.cloud.google.com))
+
+4. Start the development server:
+```bash
+npm start
+```
 
 ## Available Scripts
 

@@ -1,8 +1,8 @@
 {
-  "name": "lastfm-music-player-app",
+  "name": "lastfm-music-player",
+  "homepage": "https://Junny05.github.io/lastfm-music-player/",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://Junny05.github.io/lastfm-music-player/",
   "dependencies": {
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -19,6 +19,8 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d build",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d build"
   },

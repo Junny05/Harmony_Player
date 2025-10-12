@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { Search, Play, Pause, Music, Sun, Moon, Clock, Users, SkipForward, List, Sparkles } from 'lucide-react';
-import { spotifyService } from './spotify/service';
+import { Search, Play, Pause, Music, Home, Clock, Users, SkipForward, List, Sparkles, Heart, Zap, Coffee, Smile, Brain } from 'lucide-react';
+import { youtubeService } from './youtube/service';
+import YouTubePlayer from './components/YouTubePlayer';
 
 // Last.fm API Configuration
-const LASTFM_API_KEY = 'f0399d309b716b89d4e5cded41f5a8d4';
+const LASTFM_API_KEY = process.env.REACT_APP_LASTFM_API_KEY;
 const LASTFM_BASE_URL = 'https://ws.audioscrobbler.com/2.0/';
 
 // API Helper Functions
@@ -14,7 +15,32 @@ const lastFmApi = {
     const response = await fetch(
       `${LASTFM_BASE_URL}?method=${method}&${type}=${encodeURIComponent(query)}&api_key=${LASTFM_API_KEY}&format=json&limit=10`
     );
-    return response.json();
+    const data = await response.json();
+
+    // If searching for tracks, get additional info for each track
+    if (type === 'track' && data.results?.trackmatches?.track) {
+      const tracks = Array.isArray(data.results.trackmatches.track) 
+        ? data.results.trackmatches.track 
+        : [data.results.trackmatches.track];
+
+      // Get detailed info for each track including album art
+      const tracksWithInfo = await Promise.all(tracks.map(async track => {
+        try {
+          const trackInfo = await lastFmApi.getTrackInfo(track.artist, track.name);
+          return {
+            ...track,
+            image: trackInfo.track?.album?.image || track.image,
+            album: trackInfo.track?.album?.title
+          };
+        } catch (error) {
+          return track;
+        }
+      }));
+      
+      data.results.trackmatches.track = tracksWithInfo;
+    }
+    
+    return data;
   },
   
   getArtistInfo: async (artist) => {
@@ -49,7 +75,25 @@ const lastFmApi = {
     const response = await fetch(
       `${LASTFM_BASE_URL}?method=track.getinfo&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(track)}&api_key=${LASTFM_API_KEY}&format=json`
     );
-    return response.json();
+    const data = await response.json();
+    
+    // If no album info, try to get it from artist's top albums
+    if (!data.track?.album?.image && data.track?.artist?.name) {
+      try {
+        const albumsResponse = await fetch(
+          `${LASTFM_BASE_URL}?method=artist.gettopalbums&artist=${encodeURIComponent(data.track.artist.name)}&api_key=${LASTFM_API_KEY}&format=json&limit=1`
+        );
+        const albumsData = await albumsResponse.json();
+        if (albumsData.topalbums?.album?.[0]?.image) {
+          data.track.album = data.track.album || {};
+          data.track.album.image = albumsData.topalbums.album[0].image;
+        }
+      } catch (error) {
+        console.error('Error fetching album art:', error);
+      }
+    }
+    
+    return data;
   }
 };
 
@@ -201,10 +245,10 @@ const PlaylistQueue = ({ queue, currentIndex, onTrackSelect, theme }) => {
 };
 
 // Now Playing Component
-const NowPlaying = ({ track, isPlaying, onPlayPause, onNext, theme, showQueue }) => {
+const NowPlaying = ({ track, isPlaying, onPlayPause, onNext, theme, showQueue, youtubeVideo, onPlayerReady, onPlayerStateChange }) => {
   if (!track) {
     return (
-      <div className={`${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} rounded-xl shadow-lg p-6 text-center`}>
+      <div className="bg-white/10 backdrop-blur-lg rounded-xl shadow-lg p-6 text-center border border-white/10">
         <Music className="w-16 h-16 mx-auto mb-4 text-gray-400" />
         <p className="text-gray-500">No track playing</p>
       </div>
@@ -213,17 +257,28 @@ const NowPlaying = ({ track, isPlaying, onPlayPause, onNext, theme, showQueue })
   
   return (
     <div className={`${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} rounded-xl shadow-lg p-6`}>
+          {/* Hidden YouTube player for audio */}
+      {youtubeVideo && (
+        <YouTubePlayer
+          videoId={youtubeVideo.id.videoId}
+          onStateChange={onPlayerStateChange}
+          onReady={onPlayerReady}
+        />
+      )}
       <h3 className="text-sm font-semibold mb-4 text-gray-500 uppercase tracking-wide flex items-center gap-2">
         <Music className="w-4 h-4" />
         Now Playing
       </h3>
       <div className="flex gap-6">
-        <img
-          src={track.image || 'https://via.placeholder.com/150?text=No+Image'}
-          alt={track.name}
-          className="w-32 h-32 rounded-lg object-cover shadow-md"
-          onError={(e) => { e.target.src = 'https://via.placeholder.com/150?text=No+Image'; }}
-        />
+        <div className="relative group">
+          <img
+            src={track.image || 'https://via.placeholder.com/300?text=No+Image'}
+            alt={track.name}
+            className="w-48 h-48 rounded-lg object-cover shadow-lg transition-transform transform group-hover:scale-105"
+            onError={(e) => { e.target.src = 'https://via.placeholder.com/300?text=No+Image'; }}
+          />
+          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-opacity rounded-lg"></div>
+        </div>
         <div className="flex-1 flex flex-col justify-between">
           <div>
             <h2 className="text-2xl font-bold mb-2">{track.name}</h2>
@@ -292,11 +347,7 @@ const SearchBar = ({ onSearch, theme }) => {
           onChange={(e) => setQuery(e.target.value)}
           onKeyPress={handleKeyPress}
           placeholder="Search for artists, albums, or tracks..."
-          className={`w-full pl-10 pr-4 py-3 rounded-lg ${
-            theme === 'dark' 
-              ? 'bg-gray-800 text-white border-gray-700' 
-              : 'bg-white text-gray-900 border-gray-300'
-          } border focus:outline-none focus:ring-2 focus:ring-purple-500`}
+          className="w-full pl-10 pr-4 py-4 rounded-lg bg-white/10 backdrop-blur-lg text-white border border-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-blue-200/60"
         />
       </div>
       <select
@@ -509,8 +560,8 @@ function App() {
   const [playlist, setPlaylist] = useState([]);
   const [currentPlaylistIndex, setCurrentPlaylistIndex] = useState(0);
   const [generatingPlaylist, setGeneratingPlaylist] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [spotifyTrack, setSpotifyTrack] = useState(null);
+  const [youtubeVideo, setYoutubeVideo] = useState(null);
+  const [player, setPlayer] = useState(null);
   
   const generateAIPlaylist = async (track) => {
     setGeneratingPlaylist(true);
@@ -594,10 +645,14 @@ function App() {
           : [data.results.trackmatches.track];
         
         if (tracks.length > 0) {
+          const trackInfo = await lastFmApi.getTrackInfo(tracks[0].artist, tracks[0].name);
           const track = {
             name: tracks[0].name,
             artist: tracks[0].artist,
-            image: tracks[0].image?.find(img => img.size === 'large')?.['#text']
+            album: trackInfo.track?.album?.title,
+            image: trackInfo.track?.album?.image?.[3]?.['#text'] || // Extralarge
+                   trackInfo.track?.album?.image?.[2]?.['#text'] || // Large
+                   tracks[0].image?.find(img => img.size === 'large')?.['#text']
           };
           handleTrackSelect(track);
         }
@@ -609,34 +664,71 @@ function App() {
   };
   
   const handleTrackSelect = async (track) => {
-    setCurrentTrack(track);
-    storage.addTrack(track);
-    setRecentTracks(storage.getRecentTracks());
-    
-    // Search for the track on Spotify
-    if (isAuthenticated) {
-      const spotifyResult = await spotifyService.searchTrack(track.artist, track.name);
-      if (spotifyResult) {
-        setSpotifyTrack(spotifyResult);
-        await spotifyService.playTrack(spotifyResult.uri);
+    // Get detailed track info including album art
+    try {
+      const trackInfo = await lastFmApi.getTrackInfo(track.artist, track.name);
+      const updatedTrack = {
+        ...track,
+        album: trackInfo.track?.album?.title,
+        image: trackInfo.track?.album?.image?.[3]?.['#text'] || // Extralarge
+               trackInfo.track?.album?.image?.[2]?.['#text'] || // Large
+               trackInfo.track?.album?.image?.[1]?.['#text'] || // Medium
+               track.image || 'https://via.placeholder.com/300?text=No+Image'
+      };
+      
+      setCurrentTrack(updatedTrack);
+      storage.addTrack(updatedTrack);
+      setRecentTracks(storage.getRecentTracks());
+      
+      // Search for the track on YouTube
+      const searchQuery = `${track.name} ${track.artist} official audio`;
+      const videos = await youtubeService.searchVideo(searchQuery);
+      
+      if (videos && videos.length > 0) {
+        setYoutubeVideo(videos[0]);
         setIsPlaying(true);
       } else {
-        console.log('Track not found on Spotify');
+        console.log('Track not found on YouTube');
         setIsPlaying(false);
       }
+      
+      // Generate AI playlist based on this track
+      await generateAIPlaylist(updatedTrack);
+    } catch (error) {
+      console.error('Error getting track info:', error);
+      setCurrentTrack(track);
+      storage.addTrack(track);
+      setRecentTracks(storage.getRecentTracks());
     }
-    
-    // Generate AI playlist based on this track
-    await generateAIPlaylist(track);
   };
   
+  const handlePlayerReady = (event) => {
+    setPlayer(event.target);
+  };
+
+  const handlePlayerStateChange = (event) => {
+    switch (event.data) {
+      case window.YT.PlayerState.PLAYING:
+        setIsPlaying(true);
+        break;
+      case window.YT.PlayerState.PAUSED:
+        setIsPlaying(false);
+        break;
+      case window.YT.PlayerState.ENDED:
+        handleNext();
+        break;
+      default:
+        break;
+    }
+  };
+
   const handlePlayPause = async () => {
-    if (!isAuthenticated || !spotifyTrack) return;
+    if (!player || !youtubeVideo) return;
     
     if (isPlaying) {
-      await spotifyService.pausePlayback();
+      player.pauseVideo();
     } else {
-      await spotifyService.playTrack(spotifyTrack.uri);
+      player.playVideo();
     }
     setIsPlaying(!isPlaying);
   };
@@ -661,12 +753,10 @@ function App() {
     }
   };
   
-  const handlePlaylistTrackSelect = (index) => {
+  const handlePlaylistTrackSelect = async (index) => {
+    const track = playlist[index];
     setCurrentPlaylistIndex(index);
-    setCurrentTrack(playlist[index]);
-    setIsPlaying(true);
-    storage.addTrack(playlist[index]);
-    setRecentTracks(storage.getRecentTracks());
+    await handleTrackSelect(track); // This will get album art and handle everything else
   };
   
   const handleLoadSimilar = async (artistName) => {
@@ -681,125 +771,259 @@ function App() {
     setLoading(false);
   };
   
-  // Initialize Spotify on component mount
-  useEffect(() => {
-    const initializeSpotify = async () => {
-      try {
-        // Check if we're on the callback route
-        if (window.location.pathname === '/callback') {
-          const token = spotifyService.handleRedirect();
-          if (token) {
-            setIsAuthenticated(true);
-            await spotifyService.initializePlayer();
-            // Redirect back to the main app
-            window.location.href = '/lastfm-music-player';
-          }
-        } else {
-          // Check if we already have a token
-          const token = spotifyService.handleRedirect();
-          if (token) {
-            setIsAuthenticated(true);
-            await spotifyService.initializePlayer();
-          }
+
+
+  const [showMoodPrompt, setShowMoodPrompt] = useState(false);
+  const [currentMood, setCurrentMood] = useState('');
+
+  const handleMoodPlaylist = async (mood) => {
+    setShowMoodPrompt(false);
+    setLoading(true);
+    try {
+      // Predefined mood to genre mappings
+      const moodGenres = {
+        happy: ['pop', 'dance', 'electronic'],
+        sad: ['acoustic', 'indie', 'ambient'],
+        energetic: ['rock', 'hiphop', 'metal'],
+        relaxed: ['jazz', 'classical', 'lofi'],
+        romantic: ['rnb', 'soul', 'love songs'],
+        focused: ['ambient', 'instrumental', 'study']
+      };
+      
+      let searchQuery;
+      
+      if (moodGenres[mood]) {
+        // For predefined moods, use genre-based search
+        const genres = moodGenres[mood];
+        const genre = genres[Math.floor(Math.random() * genres.length)];
+        searchQuery = genre;
+      } else {
+        // For custom mood/description, use it directly as search query
+        // This allows more natural language searches like "rainy day coffee shop vibes"
+        searchQuery = mood;
+      }
+      
+      // Search for tracks using the query
+      const data = await lastFmApi.search(searchQuery, 'track');
+      if (data.results?.trackmatches?.track) {
+        const tracks = Array.isArray(data.results.trackmatches.track)
+          ? data.results.trackmatches.track
+          : [data.results.trackmatches.track];
+        
+        if (tracks.length > 0) {
+          // Select a track that seems most relevant
+          const randomIndex = Math.floor(Math.random() * Math.min(5, tracks.length));
+          const selectedTrack = tracks[randomIndex];
+          
+          // Use this track to start a playlist
+          handleTrackSelect({
+            name: selectedTrack.name,
+            artist: selectedTrack.artist,
+            image: selectedTrack.image?.find(img => img.size === 'large')?.['#text']
+          });
         }
-      } catch (error) {
-        console.error('Error initializing Spotify:', error);
-        setIsAuthenticated(false);
+      }
+    } catch (error) {
+      console.error('Error generating mood playlist:', error);
+    }
+    setLoading(false);
+  };
+
+  // Mood Selection Modal
+  const MoodPrompt = ({ onSelect, onClose }) => {
+    const [customMood, setCustomMood] = useState('');
+    const moods = [
+      { name: 'happy', icon: Smile, color: 'bg-yellow-500', text: 'Happy & Upbeat' },
+      { name: 'relaxed', icon: Coffee, color: 'bg-green-500', text: 'Calm & Relaxed' },
+      { name: 'energetic', icon: Zap, color: 'bg-red-500', text: 'Energetic & Pumped' },
+      { name: 'romantic', icon: Heart, color: 'bg-pink-500', text: 'Romantic & Smooth' },
+      { name: 'focused', icon: Brain, color: 'bg-purple-500', text: 'Focused & Inspired' }
+    ];
+
+    const handleCustomMoodSubmit = (e) => {
+      e.preventDefault();
+      if (customMood.trim()) {
+        onSelect(customMood.trim());
       }
     };
 
-    initializeSpotify();
-  }, []);
+    return (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 max-w-md w-full mx-4">
+          <h2 className="text-2xl font-bold text-white mb-4">How are you feeling?</h2>
+          <p className="text-blue-200 mb-6">Let AI create the perfect playlist for your mood</p>
+          
+          <form onSubmit={handleCustomMoodSubmit} className="mb-6">
+            <div className="relative">
+              <input
+                type="text"
+                value={customMood}
+                onChange={(e) => setCustomMood(e.target.value)}
+                placeholder="Describe your mood or the vibe you want..."
+                className="w-full p-4 pr-12 rounded-lg bg-white/10 border border-white/20 text-white placeholder-blue-200/60 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="submit"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-blue-400 hover:text-blue-300 disabled:opacity-50"
+                disabled={!customMood.trim()}
+              >
+                <Sparkles className="w-5 h-5" />
+              </button>
+            </div>
+          </form>
 
-  const handleLogin = () => {
-    window.location.href = spotifyService.getLoginUrl();
+          <div className="relative mb-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-white/10"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 text-blue-200 bg-[#0f172a]">or choose a mood</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
+            {moods.map(mood => (
+              <button
+                key={mood.name}
+                onClick={() => onSelect(mood.name)}
+                className={`flex items-center gap-4 p-4 rounded-lg ${mood.color} hover:opacity-90 transition-all w-full group`}
+              >
+                <mood.icon className="w-6 h-6 text-white group-hover:scale-110 transition-transform" />
+                <span className="text-white font-medium">{mood.text}</span>
+              </button>
+            ))}
+          </div>
+          
+          <button
+            onClick={onClose}
+            className="mt-6 text-blue-200 hover:text-white transition-colors w-full text-center"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
   };
 
   return (
-    <div className={`min-h-screen transition-colors ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-500 to-pink-500 bg-clip-text text-transparent">
-              Last.fm Music Player
-            </h1>
-            <p className="text-gray-500 mt-1">Discover and play music from Last.fm with AI-powered playlists</p>
+    <div className="min-h-screen bg-gradient-to-b from-blue-950 via-blue-900 to-blue-950 text-white">
+      <div className="container mx-auto px-6 py-6 max-w-[1400px]">
+        {/* Navigation Bar */}
+        <nav className="flex items-center justify-between bg-blue-800/30 backdrop-blur-sm rounded-2xl p-4 mb-8 border border-blue-700/30">
+          <div className="flex items-center gap-6">
+            <button
+              onClick={() => window.location.reload()}
+              className="bg-blue-700/50 hover:bg-blue-600/50 rounded-xl p-3 transition-all"
+            >
+              <Home className="w-6 h-6" />
+            </button>
+            <div>
+              <h1 className="text-3xl font-bold text-white">
+                Harmony <span className="text-blue-400">Player</span>
+              </h1>
+              <p className="text-blue-200 text-sm">Your AI-Powered Music Companion</p>
+            </div>
           </div>
           <div className="flex items-center gap-4">
-                    </div>
-          <div className="flex items-center gap-4">
-            {!isAuthenticated && (
-              <button
-                onClick={handleLogin}
-                className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
-              >
-                Connect Spotify
-              </button>
-            )}
             <button
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className={`p-3 rounded-lg ${
-                theme === 'dark' ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:bg-gray-100'
-              } transition-colors shadow-lg`}
+              onClick={() => setShowMoodPrompt(true)}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl flex items-center gap-2 transition-all font-medium text-sm group"
             >
-              {theme === 'dark' ? <Sun className="w-6 h-6" /> : <Moon className="w-6 h-6" />}
+              <Sparkles className="w-5 h-5 group-hover:animate-spin" />
+              <span>AI Mood Playlist</span>
             </button>
           </div>
-        </div>
+        </nav>
+        {showMoodPrompt && (
+          <MoodPrompt 
+            onSelect={handleMoodPlaylist}
+            onClose={() => setShowMoodPrompt(false)}
+          />
+        )}
         
         <div className="mb-8">
-          <SearchBar onSearch={handleSearch} theme={theme} />
+          <div className="bg-blue-800/30 backdrop-blur-sm rounded-2xl p-6 border border-blue-700/30">
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+              <Search className="w-5 h-5 text-blue-400" />
+              Search Music
+            </h2>
+            <SearchBar onSearch={handleSearch} theme="dark" />
+          </div>
         </div>
         
         {loading && (
-          <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-purple-500 mx-auto"></div>
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-white/10 backdrop-blur-lg rounded-xl p-8">
+              <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent mx-auto"></div>
+              <p className="text-blue-200 mt-4 text-center">Loading...</p>
+            </div>
           </div>
         )}
         
         {generatingPlaylist && (
-          <div className={`${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} rounded-xl shadow-lg p-4 mb-8 flex items-center gap-3`}>
-            <Sparkles className="w-5 h-5 text-purple-500 animate-pulse" />
-            <span>Generating AI-powered playlist based on your selection...</span>
+          <div className="bg-blue-800/30 backdrop-blur-sm rounded-2xl p-4 mb-8 flex items-center gap-3 border border-blue-700/30">
+            <Sparkles className="w-5 h-5 text-blue-400 animate-ping" />
+            <span>Creating your personalized AI playlist...</span>
           </div>
         )}
         
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-8">
-            <NowPlaying 
-              track={currentTrack} 
-              isPlaying={isPlaying} 
-              onPlayPause={handlePlayPause}
-              onNext={handleNext}
-              theme={theme}
-              showQueue={playlist.length > 0}
-            />
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Main Content - 8 columns */}
+          <div className="lg:col-span-8 space-y-8">
+            <div className="bg-blue-800/30 backdrop-blur-sm rounded-2xl p-6 border border-blue-700/30">
+              <NowPlaying 
+                track={currentTrack} 
+                isPlaying={isPlaying} 
+                onPlayPause={handlePlayPause}
+                onNext={handleNext}
+                theme="dark"
+                showQueue={playlist.length > 0}
+                youtubeVideo={youtubeVideo}
+                onPlayerReady={handlePlayerReady}
+                onPlayerStateChange={handlePlayerStateChange}
+              />
+            </div>
             
             {selectedArtist && (
-              <ArtistInfo 
-                artist={selectedArtist} 
-                onTrackSelect={handleTrackSelect}
-                onLoadSimilar={handleLoadSimilar}
-                theme={theme}
-              />
+              <div className="bg-blue-800/30 backdrop-blur-sm rounded-2xl p-6 border border-blue-700/30">
+                <ArtistInfo 
+                  artist={selectedArtist} 
+                  onTrackSelect={handleTrackSelect}
+                  onLoadSimilar={handleLoadSimilar}
+                  theme="dark"
+                />
+              </div>
             )}
           </div>
           
-          <div className="space-y-8">
+          {/* Sidebar - 4 columns */}
+          <div className="lg:col-span-4 space-y-8">
             {playlist.length > 0 && (
-              <PlaylistQueue
-                queue={playlist}
-                currentIndex={currentPlaylistIndex}
-                onTrackSelect={handlePlaylistTrackSelect}
-                theme={theme}
-              />
+              <div className="bg-blue-800/30 backdrop-blur-sm rounded-2xl p-6 border border-blue-700/30">
+                <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-blue-400" />
+                  AI Playlist
+                </h2>
+                <PlaylistQueue
+                  queue={playlist}
+                  currentIndex={currentPlaylistIndex}
+                  onTrackSelect={handlePlaylistTrackSelect}
+                  theme="dark"
+                />
+              </div>
             )}
             
-            <RecentTracks 
-              tracks={recentTracks} 
-              onTrackSelect={handleTrackSelect}
-              theme={theme}
-            />
+            <div className="bg-blue-800/30 backdrop-blur-sm rounded-2xl p-6 border border-blue-700/30">
+              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-blue-400" />
+                Recent Plays
+              </h2>
+              <RecentTracks 
+                tracks={recentTracks} 
+                onTrackSelect={handleTrackSelect}
+                theme="dark"
+              />
+            </div>
           </div>
         </div>
       </div>
