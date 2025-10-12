@@ -2,7 +2,7 @@
   "name": "lastfm-music-player-app",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://junny05.github.io/lastfm-music-player",
+  "homepage": "https://Junny05.github.io/lastfm-music-player/",
   "dependencies": {
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
