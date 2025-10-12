@@ -1,4 +1,4 @@
-export const SPOTIFY_CLIENT_ID = '1234567890abcdef1234567890abcdef'; // Replace this with your actual Client ID from Spotify Dashboard
+export const SPOTIFY_CLIENT_ID = '113ea063ba0d47b5890e64991a3bbac7'; // Replace this with your actual Client ID from Spotify Dashboard
 export const SPOTIFY_REDIRECT_URI = 'http://localhost:3000';
 export const SPOTIFY_AUTH_ENDPOINT = 'https://accounts.spotify.com/authorize';
 export const SPOTIFY_SCOPES = [
