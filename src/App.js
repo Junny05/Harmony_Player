@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Search, Play, Pause, Music, Sun, Moon, Clock, Users, SkipForward, List, Sparkles } from 'lucide-react';
+import { spotifyService } from './spotify/service';
 
 // Last.fm API Configuration
 const LASTFM_API_KEY = 'f0399d309b716b89d4e5cded41f5a8d4';
@@ -508,6 +509,8 @@ function App() {
   const [playlist, setPlaylist] = useState([]);
   const [currentPlaylistIndex, setCurrentPlaylistIndex] = useState(0);
   const [generatingPlaylist, setGeneratingPlaylist] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [spotifyTrack, setSpotifyTrack] = useState(null);
   
   const generateAIPlaylist = async (track) => {
     setGeneratingPlaylist(true);
@@ -607,15 +610,34 @@ function App() {
   
   const handleTrackSelect = async (track) => {
     setCurrentTrack(track);
-    setIsPlaying(true);
     storage.addTrack(track);
     setRecentTracks(storage.getRecentTracks());
+    
+    // Search for the track on Spotify
+    if (isAuthenticated) {
+      const spotifyResult = await spotifyService.searchTrack(track.artist, track.name);
+      if (spotifyResult) {
+        setSpotifyTrack(spotifyResult);
+        await spotifyService.playTrack(spotifyResult.uri);
+        setIsPlaying(true);
+      } else {
+        console.log('Track not found on Spotify');
+        setIsPlaying(false);
+      }
+    }
     
     // Generate AI playlist based on this track
     await generateAIPlaylist(track);
   };
   
-  const handlePlayPause = () => {
+  const handlePlayPause = async () => {
+    if (!isAuthenticated || !spotifyTrack) return;
+    
+    if (isPlaying) {
+      await spotifyService.pausePlayback();
+    } else {
+      await spotifyService.playTrack(spotifyTrack.uri);
+    }
     setIsPlaying(!isPlaying);
   };
   
@@ -659,6 +681,19 @@ function App() {
     setLoading(false);
   };
   
+  // Initialize Spotify on component mount
+  useEffect(() => {
+    const token = spotifyService.handleRedirect();
+    if (token) {
+      setIsAuthenticated(true);
+      spotifyService.initializePlayer();
+    }
+  }, []);
+
+  const handleLogin = () => {
+    window.location.href = spotifyService.getLoginUrl();
+  };
+
   return (
     <div className={`min-h-screen transition-colors ${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
       <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -669,14 +704,26 @@ function App() {
             </h1>
             <p className="text-gray-500 mt-1">Discover and play music from Last.fm with AI-powered playlists</p>
           </div>
-          <button
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            className={`p-3 rounded-lg ${
-              theme === 'dark' ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:bg-gray-100'
-            } transition-colors shadow-lg`}
-          >
-            {theme === 'dark' ? <Sun className="w-6 h-6" /> : <Moon className="w-6 h-6" />}
-          </button>
+          <div className="flex items-center gap-4">
+                    </div>
+          <div className="flex items-center gap-4">
+            {!isAuthenticated && (
+              <button
+                onClick={handleLogin}
+                className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+              >
+                Connect Spotify
+              </button>
+            )}
+            <button
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              className={`p-3 rounded-lg ${
+                theme === 'dark' ? 'bg-gray-800 hover:bg-gray-700' : 'bg-white hover:bg-gray-100'
+              } transition-colors shadow-lg`}
+            >
+              {theme === 'dark' ? <Sun className="w-6 h-6" /> : <Moon className="w-6 h-6" />}
+            </button>
+          </div>
         </div>
         
         <div className="mb-8">
