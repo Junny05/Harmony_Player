@@ -683,11 +683,32 @@ function App() {
   
   // Initialize Spotify on component mount
   useEffect(() => {
-    const token = spotifyService.handleRedirect();
-    if (token) {
-      setIsAuthenticated(true);
-      spotifyService.initializePlayer();
-    }
+    const initializeSpotify = async () => {
+      try {
+        // Check if we're on the callback route
+        if (window.location.pathname === '/callback') {
+          const token = spotifyService.handleRedirect();
+          if (token) {
+            setIsAuthenticated(true);
+            await spotifyService.initializePlayer();
+            // Redirect back to the main app
+            window.location.href = '/lastfm-music-player';
+          }
+        } else {
+          // Check if we already have a token
+          const token = spotifyService.handleRedirect();
+          if (token) {
+            setIsAuthenticated(true);
+            await spotifyService.initializePlayer();
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing Spotify:', error);
+        setIsAuthenticated(false);
+      }
+    };
+
+    initializeSpotify();
   }, []);
 
   const handleLogin = () => {
