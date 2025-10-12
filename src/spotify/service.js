@@ -224,16 +224,7 @@ class SpotifyService {
     }
   }
 
-  async pausePlayback() {
-    if (!this.player || !this.accessToken) return;
 
-    await fetch('https://api.spotify.com/v1/me/player/pause', {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${this.accessToken}`,
-      },
-    });
-  }
 }
 
 export const spotifyService = new SpotifyService();
